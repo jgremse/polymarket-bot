@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Kalshi Trading Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0d1117; --card: #161b22; --border: #30363d;
+      --text: #e6edf3; --muted: #8b949e;
+      --green: #00ff88; --red: #ff4444; --blue: #58a6ff;
+      --orange: #f0883e; --purple: #bc8cff; --yellow: #e3b341;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; }
+
+    /* ── Header ── */
+    .header {
+      background: var(--card); border-bottom: 1px solid var(--border);
+      padding: 12px 20px; display: flex; align-items: center; gap: 32px; flex-wrap: wrap;
+    }
+    .header .logo { font-size: 16px; font-weight: 700; color: var(--blue); letter-spacing: 1px; }
+    .stat { display: flex; flex-direction: column; gap: 2px; }
+    .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-value { font-size: 15px; font-weight: 600; font-family: monospace; }
+    .green { color: var(--green); } .red { color: var(--red); }
+    .blue { color: var(--blue); } .orange { color: var(--orange); }
+    .yellow { color: var(--yellow); } .purple { color: var(--purple); }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; margin-right: 6px; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    /* ── Layout ── */
+    .main { padding: 16px; display: grid; gap: 16px; }
+    .row { display: grid; gap: 16px; }
+    .row-2 { grid-template-columns: 1fr 1fr; }
+    .row-3 { grid-template-columns: 1fr 1fr 1fr; }
+    .row-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+    .row-3-1 { grid-template-columns: 2fr 1fr; }
+    .row-1-2 { grid-template-columns: 1fr 2fr; }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 8px; padding: 14px; overflow: hidden;
+    }
+    .card-title {
+      font-size: 11px; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.8px;
+      margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+    }
+    .card-title span { width: 3px; height: 12px; border-radius: 2px; display: inline-block; }
+    .chart-wrap { position: relative; height: 180px; }
+    .chart-wrap-sm { position: relative; height: 120px; }
+    .chart-wrap-lg { position: relative; height: 240px; }
+
+    /* ── Gauge ── */
+    .gauge-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 0; }
+    .gauge-value { font-size: 28px; font-weight: 700; font-family: monospace; }
+    .gauge-bar-bg { width: 100%; height: 6px; background: var(--border); border-radius: 3px; margin: 8px 0 4px; overflow: hidden; }
+    .gauge-bar { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+    .gauge-labels { width: 100%; display: flex; justify-content: space-between; color: var(--muted); font-size: 10px; }
+
+    /* ── Tables ── */
+    .tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .tbl th { color: var(--muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+    .tbl td { padding: 5px 8px; border-bottom: 1px solid #21262d; font-family: monospace; }
+    .tbl tr:last-child td { border-bottom: none; }
+    .tbl tr:hover td { background: #1c2128; }
+    .badge { padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+    .badge-buy { background: rgba(0,255,136,0.15); color: var(--green); }
+    .badge-sell { background: rgba(255,68,68,0.15); color: var(--red); }
+    .badge-macd { background: rgba(88,166,255,0.15); color: var(--blue); }
+    .badge-rsi { background: rgba(240,136,62,0.15); color: var(--orange); }
+    .badge-cvd { background: rgba(188,140,255,0.15); color: var(--purple); }
+
+    /* ── Metric grid ── */
+    .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .metric-item { background: #0d1117; border-radius: 6px; padding: 8px 10px; }
+    .metric-item .label { font-size: 10px; color: var(--muted); text-transform: uppercase; }
+    .metric-item .value { font-size: 16px; font-weight: 700; font-family: monospace; margin-top: 2px; }
+
+    /* ── Signal strength ── */
+    .signal-arc { text-align: center; padding: 10px 0; }
+    .signal-arc .big { font-size: 36px; font-weight: 800; font-family: monospace; }
+    .signal-arc .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .confidence-bars { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+    .conf-row { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+    .conf-label { width: 40px; color: var(--muted); }
+    .conf-track { flex: 1; height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .conf-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+    .conf-pct { width: 32px; text-align: right; font-family: monospace; font-size: 11px; }
+
+    /* ── Scrollable feeds ── */
+    .feed { max-height: 180px; overflow-y: auto; }
+    .feed::-webkit-scrollbar { width: 4px; }
+    .feed::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    /* ── Strategy performance ── */
+    .strat-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #21262d; }
+    .strat-row:last-child { border-bottom: none; }
+    .strat-name { width: 50px; font-size: 11px; font-weight: 600; }
+    .strat-bar-bg { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .strat-bar { height: 100%; border-radius: 3px; transition: width 0.5s; }
+    .strat-pct { width: 36px; font-family: monospace; font-size: 11px; text-align: right; }
+    .strat-trades { width: 28px; color: var(--muted); font-size: 10px; text-align: right; }
+
+    @media (max-width: 1200px) { .row-4 { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 800px) { .row-2,.row-3,.row-3-1,.row-1-2 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────────────── -->
+<div class="header">
+  <div class="logo">⚡ KALSHI BOT</div>
+  <div class="stat">
+    <div class="stat-label">Market</div>
+    <div class="stat-value blue" id="h-market">—</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Strategy</div>
+    <div class="stat-value purple" id="h-strategy">—</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Last Price</div>
+    <div class="stat-value" id="h-price">—</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Capital</div>
+    <div class="stat-value green" id="h-capital">—</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Total P&L</div>
+    <div class="stat-value" id="h-pnl">—</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Win Rate</div>
+    <div class="stat-value" id="h-winrate">—</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">VWAP</div>
+    <div class="stat-value orange" id="h-vwap">—</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Volatility</div>
+    <div class="stat-value yellow" id="h-vol">—</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Status</div>
+    <div class="stat-value"><span class="status-dot"></span><span id="h-status">LIVE</span></div>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- ── Row 1: Price chart + Equity ──────────────────────────── -->
+  <div class="row row-3-1">
+    <div class="card">
+      <div class="card-title"><span style="background:var(--blue)"></span>Implied Probability + VWAP</div>
+      <div class="chart-wrap-lg"><canvas id="priceChart"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span style="background:var(--green)"></span>Equity Curve</div>
+      <div class="chart-wrap-lg"><canvas id="equityChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ── Row 2: RSI + MACD + CVD + Volume ─────────────────────── -->
+  <div class="row row-4">
+    <div class="card">
+      <div class="card-title"><span style="background:var(--orange)"></span>RSI (14)</div>
+      <div class="chart-wrap-sm"><canvas id="rsiChart"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span style="background:var(--blue)"></span>MACD</div>
+      <div class="chart-wrap-sm"><canvas id="macdChart"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span style="background:var(--purple)"></span>CVD</div>
+      <div class="chart-wrap-sm"><canvas id="cvdChart"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span style="background:var(--yellow)"></span>Volume</div>
+      <div class="chart-wrap-sm"><canvas id="volChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ── Row 3: Signal strength + RSI gauge + MACD values + Volatility ── -->
+  <div class="row row-4">
+    <div class="card">
+      <div class="card-title"><span style="background:var(--purple)"></span>Signal Strength</div>
+      <div class="signal-arc">
+        <div class="big" id="sig-strength">0%</div>
+        <div class="sub">avg confidence (last 3)</div>
+      </div>
+      <div class="confidence-bars">
+        <div class="conf-row">
+          <div class="conf-label orange">RSI</div>
+          <div class="conf-track"><div class="conf-fill" id="conf-rsi" style="background:var(--orange);width:0%"></div></div>
+          <div class="conf-pct orange" id="conf-rsi-pct">0%</div>
+        </div>
+        <div class="conf-row">
+          <div class="conf-label blue">MACD</div>
+          <div class="conf-track"><div class="conf-fill" id="conf-macd" style="background:var(--blue);width:0%"></div></div>
+          <div class="conf-pct blue" id="conf-macd-pct">0%</div>
+        </div>
+        <div class="conf-row">
+          <div class="conf-label purple">CVD</div>
+          <div class="conf-track"><div class="conf-fill" id="conf-cvd" style="background:var(--purple);width:0%"></div></div>
+          <div class="conf-pct purple" id="conf-cvd-pct">0%</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span style="background:var(--orange)"></span>RSI Gauge</div>
+      <div class="gauge-wrap">
+        <div class="gauge-value" id="rsi-val">50</div>
+        <div class="gauge-bar-bg"><div class="gauge-bar" id="rsi-bar" style="width:50%"></div></div>
+        <div class="gauge-labels"><span>0</span><span>Oversold 30</span><span>Overbought 70</span><span>100</span></div>
+      </div>
+      <div class="metric-grid" style="margin-top:10px">
+        <div class="metric-item"><div class="label">MACD</div><div class="value blue" id="macd-val">—</div></div>
+        <div class="metric-item"><div class="label">Signal</div><div class="value" id="macd-sig-val">—</div></div>
+        <div class="metric-item"><div class="label">Histogram</div><div class="value" id="macd-hist-val">—</div></div>
+        <div class="metric-item"><div class="label">CVD</div><div class="value purple" id="cvd-val">—</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span style="background:var(--yellow)"></span>Volatility</div>
+      <div class="gauge-wrap">
+        <div class="gauge-value yellow" id="volt-val">0%</div>
+        <div class="gauge-bar-bg"><div class="gauge-bar" id="volt-bar" style="background:var(--yellow);width:0%"></div></div>
+        <div class="gauge-labels"><span>Low</span><span></span><span>High</span></div>
+      </div>
+      <div class="metric-grid" style="margin-top:10px">
+        <div class="metric-item"><div class="label">VWAP</div><div class="value orange" id="vwap-val">—</div></div>
+        <div class="metric-item"><div class="label">Last Price</div><div class="value" id="price-val">—</div></div>
+        <div class="metric-item"><div class="label">Last Volume</div><div class="value" id="lvol-val">—</div></div>
+        <div class="metric-item"><div class="label">Open Orders</div><div class="value blue" id="orders-count">0</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span style="background:var(--green)"></span>Performance</div>
+      <div class="metric-grid">
+        <div class="metric-item"><div class="label">Total P&L</div><div class="value" id="p-pnl">$0</div></div>
+        <div class="metric-item"><div class="label">Win Rate</div><div class="value green" id="p-wr">0%</div></div>
+        <div class="metric-item"><div class="label">Profit Factor</div><div class="value" id="p-pf">0</div></div>
+        <div class="metric-item"><div class="label">Trades</div><div class="value" id="p-trades">0</div></div>
+        <div class="metric-item"><div class="label">Avg Win</div><div class="value green" id="p-aw">$0</div></div>
+        <div class="metric-item"><div class="label">Avg Loss</div><div class="value red" id="p-al">$0</div></div>
+        <div class="metric-item"><div class="label">Best Trade</div><div class="value green" id="p-best">$0</div></div>
+        <div class="metric-item"><div class="label">Worst Trade</div><div class="value red" id="p-worst">$0</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Row 4: Strategy breakdown + Open orders + Signal log ─── -->
+  <div class="row row-3">
+    <div class="card">
+      <div class="card-title"><span style="background:var(--blue)"></span>Win Rate by Strategy</div>
+      <div id="strat-breakdown">
+        <div class="strat-row">
+          <div class="strat-name orange">RSI</div>
+          <div class="strat-bar-bg"><div class="strat-bar" id="sb-rsi" style="background:var(--orange);width:0%"></div></div>
+          <div class="strat-pct orange" id="sp-rsi">0%</div>
+          <div class="strat-trades" id="st-rsi">0</div>
+        </div>
+        <div class="strat-row">
+          <div class="strat-name blue">MACD</div>
+          <div class="strat-bar-bg"><div class="strat-bar" id="sb-macd" style="background:var(--blue);width:0%"></div></div>
+          <div class="strat-pct blue" id="sp-macd">0%</div>
+          <div class="strat-trades" id="st-macd">0</div>
+        </div>
+        <div class="strat-row">
+          <div class="strat-name purple">CVD</div>
+          <div class="strat-bar-bg"><div class="strat-bar" id="sb-cvd" style="background:var(--purple);width:0%"></div></div>
+          <div class="strat-pct purple" id="sp-cvd">0%</div>
+          <div class="strat-trades" id="st-cvd">0</div>
+        </div>
+      </div>
+      <div style="margin-top:14px">
+        <div class="card-title" style="margin-bottom:8px"><span style="background:var(--green)"></span>Wins / Losses</div>
+        <div style="display:flex;gap:24px">
+          <div><div style="font-size:10px;color:var(--muted)">WINS</div><div style="font-size:22px;font-weight:700;color:var(--green);font-family:monospace" id="p-wins">0</div></div>
+          <div><div style="font-size:10px;color:var(--muted)">LOSSES</div><div style="font-size:22px;font-weight:700;color:var(--red);font-family:monospace" id="p-losses">0</div></div>
+          <div><div style="font-size:10px;color:var(--muted)">TOTAL</div><div style="font-size:22px;font-weight:700;font-family:monospace" id="p-total">0</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span style="background:var(--yellow)"></span>Open Orders</div>
+      <div class="feed">
+        <table class="tbl">
+          <thead><tr><th>Side</th><th>Price</th><th>Size</th><th>Market</th><th>Time</th></tr></thead>
+          <tbody id="orders-body"><tr><td colspan="5" style="color:var(--muted);text-align:center;padding:16px">No open orders</td></tr></tbody>
+        </table>
+      </div>
+      <div style="margin-top:14px">
+        <div class="card-title" style="margin-bottom:8px"><span style="background:var(--red)"></span>Recent Fills</div>
+        <div class="feed" style="max-height:120px">
+          <table class="tbl">
+            <thead><tr><th>Side</th><th>Price</th><th>Size</th><th>P&L</th><th>Time</th></tr></thead>
+            <tbody id="fills-body"><tr><td colspan="5" style="color:var(--muted);text-align:center;padding:10px">No fills yet</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span style="background:var(--purple)"></span>Signal Log</div>
+      <div class="feed">
+        <table class="tbl">
+          <thead><tr><th>Time</th><th>Strategy</th><th>Side</th><th>Price</th><th>Conf</th><th>Reason</th></tr></thead>
+          <tbody id="signals-body"><tr><td colspan="6" style="color:var(--muted);text-align:center;padding:16px">Waiting for signals...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+
+<script>
+// ── Chart defaults ────────────────────────────────────────────────────────────
+Chart.defaults.color = '#8b949e';
+Chart.defaults.borderColor = '#30363d';
+Chart.defaults.font.family = 'monospace';
+Chart.defaults.font.size = 10;
+
+const cfg = (type, data, options) => ({ type, data, options: { responsive: true, maintainAspectRatio: false, animation: { duration: 300 }, plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } }, ...options } });
+
+// ── Price chart ───────────────────────────────────────────────────────────────
+const priceChart = new Chart(document.getElementById('priceChart'), cfg('line', {
+  labels: [], datasets: [
+    { label: 'Price', data: [], borderColor: '#58a6ff', borderWidth: 1.5, pointRadius: 0, tension: 0.1, fill: false },
+    { label: 'VWAP', data: [], borderColor: '#f0883e', borderWidth: 1, borderDash: [4,2], pointRadius: 0, tension: 0.1, fill: false },
+  ]
+}, { scales: { x: { ticks: { maxTicksLimit: 6 } }, y: { ticks: { callback: v => (v*100).toFixed(0)+'¢' } } } }));
+
+// ── Equity chart ──────────────────────────────────────────────────────────────
+const equityChart = new Chart(document.getElementById('equityChart'), cfg('line', {
+  labels: [], datasets: [{ label: 'Equity', data: [], borderColor: '#00ff88', borderWidth: 1.5, pointRadius: 0, tension: 0.1, fill: { target: 'origin', above: 'rgba(0,255,136,0.05)' } }]
+}, { scales: { x: { ticks: { maxTicksLimit: 5 } }, y: { ticks: { callback: v => '$'+v.toFixed(0) } } } }));
+
+// ── RSI chart ─────────────────────────────────────────────────────────────────
+const rsiChart = new Chart(document.getElementById('rsiChart'), cfg('line', {
+  labels: [], datasets: [
+    { label: 'RSI', data: [], borderColor: '#f0883e', borderWidth: 1.5, pointRadius: 0, tension: 0.1, fill: false },
+  ]
+}, {
+  scales: {
+    x: { display: false },
+    y: { min: 0, max: 100, ticks: { callback: v => v },
+      grid: { color: ctx => ctx.tick.value === 30 || ctx.tick.value === 70 ? '#ff4444' : '#30363d' }
+    }
+  },
+  plugins: { annotation: {} }
+}));
+
+// ── MACD chart ────────────────────────────────────────────────────────────────
+const macdChart = new Chart(document.getElementById('macdChart'), cfg('bar', {
+  labels: [], datasets: [
+    { label: 'Histogram', data: [], backgroundColor: ctx => ctx.raw >= 0 ? 'rgba(0,255,136,0.6)' : 'rgba(255,68,68,0.6)', order: 2 },
+    { label: 'MACD', data: [], borderColor: '#58a6ff', borderWidth: 1, type: 'line', pointRadius: 0, order: 1 },
+    { label: 'Signal', data: [], borderColor: '#f0883e', borderWidth: 1, type: 'line', pointRadius: 0, order: 1 },
+  ]
+}, { scales: { x: { display: false }, y: {} } }));
+
+// ── CVD chart ─────────────────────────────────────────────────────────────────
+const cvdChart = new Chart(document.getElementById('cvdChart'), cfg('line', {
+  labels: [], datasets: [{ label: 'CVD', data: [], borderColor: '#bc8cff', borderWidth: 1.5, pointRadius: 0, tension: 0.1, fill: { target: 'origin', above: 'rgba(188,140,255,0.1)', below: 'rgba(255,68,68,0.1)' } }]
+}, { scales: { x: { display: false }, y: {} } }));
+
+// ── Volume chart ──────────────────────────────────────────────────────────────
+const volChart = new Chart(document.getElementById('volChart'), cfg('bar', {
+  labels: [], datasets: [{ label: 'Volume', data: [], backgroundColor: 'rgba(227,179,65,0.6)' }]
+}, { scales: { x: { display: false }, y: {} } }));
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const $  = id => document.getElementById(id);
+const pnlColor = v => v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--text)';
+const fmt = (v, dec=4) => typeof v === 'number' ? v.toFixed(dec) : '—';
+
+function updateChart(chart, labels, ...datasets) {
+  chart.data.labels = labels;
+  datasets.forEach((d, i) => { chart.data.datasets[i].data = d; });
+  chart.update('none');
+}
+
+// ── Main update ───────────────────────────────────────────────────────────────
+async function update() {
+  let data;
+  try {
+    const res = await fetch('/api/state');
+    data = await res.json();
+  } catch(e) { $('h-status').textContent = 'ERROR'; return; }
+
+  $('h-status').textContent = 'LIVE';
+
+  const { metrics, prices, signals, fills, open_orders, equity, capital } = data;
+  const { performance: perf, rsi_series, macd, cvd, implied_probability, vwap, volatility, signal_strength } = metrics;
+
+  // ── Header ────────────────────────────────────────────────────────────────
+  $('h-market').textContent    = data.market_id || '—';
+  $('h-strategy').textContent  = data.strategy_name || '—';
+  $('h-price').textContent     = data.last_price ? (data.last_price * 100).toFixed(0) + '¢' : '—';
+  $('h-capital').textContent   = '$' + fmt(capital, 2);
+  $('h-vwap').textContent      = vwap ? (vwap * 100).toFixed(1) + '¢' : '—';
+  $('h-vol').textContent       = volatility + '%';
+
+  const pnl = perf.total_pnl;
+  $('h-pnl').textContent  = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(4);
+  $('h-pnl').style.color  = pnlColor(pnl);
+  $('h-winrate').textContent = perf.win_rate + '%';
+  $('h-winrate').style.color = perf.win_rate >= 50 ? 'var(--green)' : 'var(--red)';
+
+  // ── Price chart ───────────────────────────────────────────────────────────
+  const probLabels = implied_probability.map(p => p.timestamp.slice(11,19));
+  const probData   = implied_probability.map(p => p.prob / 100);
+  const vwapLine   = implied_probability.map(() => vwap);
+  updateChart(priceChart, probLabels, probData, vwapLine);
+
+  // ── Equity chart ──────────────────────────────────────────────────────────
+  updateChart(equityChart, equity.map(e => e.timestamp.slice(11,19)), equity.map(e => e.value));
+
+  // ── RSI chart ─────────────────────────────────────────────────────────────
+  const rsi = metrics.rsi;
+  updateChart(rsiChart, rsi_series.map(r => r.timestamp.slice(11,19)), rsi_series.map(r => r.rsi));
+  $('rsi-val').textContent = rsi.toFixed(1);
+  $('rsi-val').style.color = rsi < 30 ? 'var(--green)' : rsi > 70 ? 'var(--red)' : 'var(--text)';
+  $('rsi-bar').style.width = rsi + '%';
+  $('rsi-bar').style.background = rsi < 30 ? 'var(--green)' : rsi > 70 ? 'var(--red)' : 'var(--orange)';
+
+  // ── MACD chart ────────────────────────────────────────────────────────────
+  const ms = macd.series;
+  if (ms.length) {
+    updateChart(macdChart, ms.map(m => m.timestamp.slice(11,19)), ms.map(m => m.histogram), ms.map(m => m.macd), ms.map(m => m.signal));
+  }
+  $('macd-val').textContent      = fmt(macd.macd, 5);
+  $('macd-sig-val').textContent  = fmt(macd.signal, 5);
+  const hist = macd.histogram;
+  $('macd-hist-val').textContent = fmt(hist, 5);
+  $('macd-hist-val').style.color = pnlColor(hist);
+
+  // ── CVD chart ─────────────────────────────────────────────────────────────
+  const cs = cvd.series;
+  if (cs.length) updateChart(cvdChart, cs.map(c => c.timestamp.slice(11,19)), cs.map(c => c.cvd));
+  $('cvd-val').textContent = fmt(cvd.value, 1);
+  $('cvd-val').style.color = cvd.value > 0 ? 'var(--green)' : cvd.value < 0 ? 'var(--red)' : 'var(--text)';
+
+  // ── Volume chart ──────────────────────────────────────────────────────────
+  const recent = prices.slice(-30);
+  updateChart(volChart, recent.map(p => p.timestamp.slice(11,19)), recent.map(p => p.volume));
+  $('lvol-val').textContent = fmt(data.last_volume, 2);
+
+  // ── Volatility gauge ──────────────────────────────────────────────────────
+  $('volt-val').textContent = volatility + '%';
+  $('volt-bar').style.width = Math.min(volatility, 100) + '%';
+  $('vwap-val').textContent  = vwap ? (vwap*100).toFixed(1)+'¢' : '—';
+  $('price-val').textContent = data.last_price ? (data.last_price*100).toFixed(0)+'¢' : '—';
+
+  // ── Signal strength ───────────────────────────────────────────────────────
+  $('sig-strength').textContent = signal_strength.toFixed(0) + '%';
+  $('sig-strength').style.color = signal_strength > 60 ? 'var(--green)' : signal_strength > 30 ? 'var(--yellow)' : 'var(--muted)';
+
+  // Per-strategy confidence from recent signals
+  ['rsi','macd','cvd'].forEach(s => {
+    const recent = signals.filter(sig => sig.strategy.toLowerCase() === s);
+    const conf = recent.length ? recent[0].confidence : 0;
+    $(`conf-${s}`).style.width = conf + '%';
+    $(`conf-${s}-pct`).textContent = conf.toFixed(0) + '%';
+  });
+
+  // ── Performance cards ─────────────────────────────────────────────────────
+  $('p-pnl').textContent   = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(4);
+  $('p-pnl').style.color   = pnlColor(pnl);
+  $('p-wr').textContent    = perf.win_rate + '%';
+  $('p-pf').textContent    = fmt(perf.profit_factor, 2);
+  $('p-pf').style.color    = perf.profit_factor >= 1 ? 'var(--green)' : 'var(--red)';
+  $('p-trades').textContent = perf.total_trades;
+  $('p-aw').textContent    = '+$' + fmt(perf.avg_win, 4);
+  $('p-al').textContent    = '-$' + Math.abs(perf.avg_loss).toFixed(4);
+  $('p-best').textContent  = '+$' + fmt(perf.best_trade, 4);
+  $('p-worst').textContent = '-$' + Math.abs(perf.worst_trade).toFixed(4);
+  $('p-wins').textContent  = perf.wins;
+  $('p-losses').textContent = perf.losses;
+  $('p-total').textContent  = perf.total_trades;
+
+  // ── Strategy breakdown ────────────────────────────────────────────────────
+  ['rsi','macd','cvd'].forEach(s => {
+    const sd = perf.by_strategy[s.toUpperCase()] || perf.by_strategy[s] || {};
+    const wr = sd.win_rate || 0;
+    $(`sb-${s}`).style.width = wr + '%';
+    $(`sp-${s}`).textContent = wr + '%';
+    $(`st-${s}`).textContent = (sd.trades || 0) + 't';
+  });
+
+  // ── Open orders ───────────────────────────────────────────────────────────
+  $('orders-count').textContent = open_orders.length;
+  $('orders-body').innerHTML = open_orders.length ? open_orders.map(o => `
+    <tr>
+      <td><span class="badge badge-${o.side.toLowerCase()}">${o.side}</span></td>
+      <td>${(o.price*100).toFixed(0)}¢</td>
+      <td>${o.size}</td>
+      <td style="color:var(--muted);font-size:10px">${o.market_id}</td>
+      <td style="color:var(--muted)">${o.timestamp}</td>
+    </tr>`).join('') :
+    `<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:10px">No open orders</td></tr>`;
+
+  // ── Fills ─────────────────────────────────────────────────────────────────
+  $('fills-body').innerHTML = fills.slice(0,10).length ? fills.slice(0,10).map(f => `
+    <tr>
+      <td><span class="badge badge-${f.side.toLowerCase()}">${f.side}</span></td>
+      <td>${(f.price*100).toFixed(0)}¢</td>
+      <td>${f.size}</td>
+      <td style="color:${f.pnl>=0?'var(--green)':'var(--red)'}">${f.pnl>=0?'+':''}$${Math.abs(f.pnl).toFixed(4)}</td>
+      <td style="color:var(--muted)">${f.timestamp}</td>
+    </tr>`).join('') :
+    `<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:10px">No fills yet</td></tr>`;
+
+  // ── Signal log ────────────────────────────────────────────────────────────
+  $('signals-body').innerHTML = signals.length ? signals.slice(0,15).map(s => `
+    <tr>
+      <td style="color:var(--muted)">${s.timestamp}</td>
+      <td><span class="badge badge-${s.strategy.toLowerCase()}">${s.strategy}</span></td>
+      <td><span class="badge badge-${s.side.toLowerCase()}">${s.side}</span></td>
+      <td>${(s.price*100).toFixed(0)}¢</td>
+      <td style="color:${s.confidence>60?'var(--green)':s.confidence>30?'var(--yellow)':'var(--muted)'}">${s.confidence}%</td>
+      <td style="color:var(--muted);font-size:10px;max-width:200px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${s.reason}</td>
+    </tr>`).join('') :
+    `<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:16px">Waiting for signals...</td></tr>`;
+}
+
+update();
+setInterval(update, 5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,44 @@
+# Environment — never commit credentials
+.env
+*.env
+
+# Private keys — never commit
+*.pem
+*.key
+*.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Backtest output
+backtest_*.csv
+equity_*.csv
+
+# Logs and local DB
+*.log
+trading.db
+
+# OS
+.DS_Store
+Thumbs.db
