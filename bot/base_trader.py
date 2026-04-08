@@ -177,6 +177,11 @@ class BaseTrader(ABC):
             logger.info("[%s] Skipping order — contract price unavailable (0.50 fallback)", market_id)
             return
 
+        # Don't place if we already have an open position on this contract
+        if market_id in self._open_orders and self._open_orders[market_id]:
+            logger.info("[%s] Skipping order — already have an open position on this contract", market_id)
+            return
+
         sized = self.rm.evaluate(combined, market_id)
         if sized:
             dashboard_state.add_signal(
