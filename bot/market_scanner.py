@@ -55,11 +55,7 @@ class KalshiMarketScanner:
             try:
                 resp = self._api.get_markets(limit=100, series_ticker=series, status="open")
                 tickers = [m.ticker for m in (resp.markets or [])]
-                # For BTC daily contracts, keep all available so we can filter by proximity
-                if series == "KXBTCD":
-                    all_tickers.extend(tickers)
-                else:
-                    all_tickers.extend(tickers[:20])
+                all_tickers.extend(tickers)
                 time.sleep(0.2)
             except Exception as exc:
                 logger.debug("Scanner skipped series %s: %s", series, exc)

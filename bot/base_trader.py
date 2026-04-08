@@ -172,6 +172,11 @@ class BaseTrader(ABC):
         if contract_price is not None:
             combined.price = contract_price
 
+        # Don't place if price is the 0.50 fallback — means we have no real price data yet
+        if combined.price == 0.50:
+            logger.info("[%s] Skipping order — contract price unavailable (0.50 fallback)", market_id)
+            return
+
         sized = self.rm.evaluate(combined, market_id)
         if sized:
             dashboard_state.add_signal(
