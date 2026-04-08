@@ -73,6 +73,9 @@
     .badge-macd { background: rgba(88,166,255,0.15); color: var(--blue); }
     .badge-rsi { background: rgba(240,136,62,0.15); color: var(--orange); }
     .badge-cvd { background: rgba(188,140,255,0.15); color: var(--purple); }
+    .badge-bollinger { background: rgba(0,255,136,0.15); color: var(--green); }
+    .badge-vwap { background: rgba(227,179,65,0.15); color: var(--yellow); }
+    --teal: #39d0d8;
 
     /* ── Metric grid ── */
     .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -166,8 +169,8 @@
     </div>
   </div>
 
-  <!-- ── Row 2: RSI + MACD + CVD + Volume ─────────────────────── -->
-  <div class="row row-4">
+  <!-- ── Row 2: RSI + MACD + CVD + Bollinger + VWAP Dev ──────── -->
+  <div class="row" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr">
     <div class="card">
       <div class="card-title"><span style="background:var(--orange)"></span>RSI (14)</div>
       <div class="chart-wrap-sm"><canvas id="rsiChart"></canvas></div>
@@ -181,8 +184,12 @@
       <div class="chart-wrap-sm"><canvas id="cvdChart"></canvas></div>
     </div>
     <div class="card">
-      <div class="card-title"><span style="background:var(--yellow)"></span>Volume</div>
-      <div class="chart-wrap-sm"><canvas id="volChart"></canvas></div>
+      <div class="card-title"><span style="background:var(--green)"></span>Bollinger Bands</div>
+      <div class="chart-wrap-sm"><canvas id="bollingerChart"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span style="background:var(--yellow)"></span>VWAP Deviation %</div>
+      <div class="chart-wrap-sm"><canvas id="vwapDevChart"></canvas></div>
     </div>
   </div>
 
@@ -209,6 +216,16 @@
           <div class="conf-label purple">CVD</div>
           <div class="conf-track"><div class="conf-fill" id="conf-cvd" style="background:var(--purple);width:0%"></div></div>
           <div class="conf-pct purple" id="conf-cvd-pct">0%</div>
+        </div>
+        <div class="conf-row">
+          <div class="conf-label green">BB</div>
+          <div class="conf-track"><div class="conf-fill" id="conf-bollinger" style="background:var(--green);width:0%"></div></div>
+          <div class="conf-pct green" id="conf-bollinger-pct">0%</div>
+        </div>
+        <div class="conf-row">
+          <div class="conf-label yellow">VWAP</div>
+          <div class="conf-track"><div class="conf-fill" id="conf-vwap" style="background:var(--yellow);width:0%"></div></div>
+          <div class="conf-pct yellow" id="conf-vwap-pct">0%</div>
         </div>
       </div>
     </div>
@@ -281,6 +298,18 @@
           <div class="strat-pct purple" id="sp-cvd">0%</div>
           <div class="strat-trades" id="st-cvd">0</div>
         </div>
+        <div class="strat-row">
+          <div class="strat-name green">BB</div>
+          <div class="strat-bar-bg"><div class="strat-bar" id="sb-bollinger" style="background:var(--green);width:0%"></div></div>
+          <div class="strat-pct green" id="sp-bollinger">0%</div>
+          <div class="strat-trades" id="st-bollinger">0</div>
+        </div>
+        <div class="strat-row">
+          <div class="strat-name yellow">VWAP</div>
+          <div class="strat-bar-bg"><div class="strat-bar" id="sb-vwap" style="background:var(--yellow);width:0%"></div></div>
+          <div class="strat-pct yellow" id="sp-vwap">0%</div>
+          <div class="strat-trades" id="st-vwap">0</div>
+        </div>
       </div>
       <div style="margin-top:14px">
         <div class="card-title" style="margin-bottom:8px"><span style="background:var(--green)"></span>Wins / Losses</div>
@@ -336,8 +365,11 @@ const cfg = (type, data, options) => ({ type, data, options: { responsive: true,
 // ── Price chart ───────────────────────────────────────────────────────────────
 const priceChart = new Chart(document.getElementById('priceChart'), cfg('line', {
   labels: [], datasets: [
-    { label: 'Price', data: [], borderColor: '#58a6ff', borderWidth: 1.5, pointRadius: 0, tension: 0.1, fill: false },
-    { label: 'VWAP', data: [], borderColor: '#f0883e', borderWidth: 1, borderDash: [4,2], pointRadius: 0, tension: 0.1, fill: false },
+    { label: 'Price',    data: [], borderColor: '#58a6ff', borderWidth: 2,   pointRadius: 0, tension: 0.1, fill: false },
+    { label: 'VWAP',    data: [], borderColor: '#f0883e', borderWidth: 1,   borderDash: [4,2], pointRadius: 0, tension: 0.1, fill: false },
+    { label: 'BB Upper',data: [], borderColor: 'rgba(0,255,136,0.4)', borderWidth: 1, borderDash: [2,3], pointRadius: 0, tension: 0.1, fill: false },
+    { label: 'BB Lower',data: [], borderColor: 'rgba(0,255,136,0.4)', borderWidth: 1, borderDash: [2,3], pointRadius: 0, tension: 0.1, fill: '+1', backgroundColor: 'rgba(0,255,136,0.04)' },
+    { label: 'BB Mid',  data: [], borderColor: 'rgba(0,255,136,0.2)', borderWidth: 1, borderDash: [1,4], pointRadius: 0, tension: 0.1, fill: false },
   ]
 }, { scales: { x: { ticks: { maxTicksLimit: 6 } }, y: { ticks: { callback: v => (v*100).toFixed(0)+'¢' } } } }));
 
@@ -375,10 +407,20 @@ const cvdChart = new Chart(document.getElementById('cvdChart'), cfg('line', {
   labels: [], datasets: [{ label: 'CVD', data: [], borderColor: '#bc8cff', borderWidth: 1.5, pointRadius: 0, tension: 0.1, fill: { target: 'origin', above: 'rgba(188,140,255,0.1)', below: 'rgba(255,68,68,0.1)' } }]
 }, { scales: { x: { display: false }, y: {} } }));
 
-// ── Volume chart ──────────────────────────────────────────────────────────────
-const volChart = new Chart(document.getElementById('volChart'), cfg('bar', {
-  labels: [], datasets: [{ label: 'Volume', data: [], backgroundColor: 'rgba(227,179,65,0.6)' }]
+// ── Bollinger chart ───────────────────────────────────────────────────────────
+const bollingerChart = new Chart(document.getElementById('bollingerChart'), cfg('line', {
+  labels: [], datasets: [
+    { label: 'Price', data: [], borderColor: '#58a6ff', borderWidth: 1.5, pointRadius: 0, tension: 0.1, fill: false },
+    { label: 'Upper', data: [], borderColor: 'rgba(0,255,136,0.6)', borderWidth: 1, borderDash: [3,2], pointRadius: 0, tension: 0.1, fill: false },
+    { label: 'Lower', data: [], borderColor: 'rgba(0,255,136,0.6)', borderWidth: 1, borderDash: [3,2], pointRadius: 0, tension: 0.1, fill: false },
+    { label: 'Mid',   data: [], borderColor: 'rgba(0,255,136,0.25)', borderWidth: 1, pointRadius: 0, tension: 0.1, fill: false },
+  ]
 }, { scales: { x: { display: false }, y: {} } }));
+
+// ── VWAP deviation chart ──────────────────────────────────────────────────────
+const vwapDevChart = new Chart(document.getElementById('vwapDevChart'), cfg('line', {
+  labels: [], datasets: [{ label: 'VWAP Dev%', data: [], borderColor: '#e3b341', borderWidth: 1.5, pointRadius: 0, tension: 0.1, fill: { target: 'origin', above: 'rgba(227,179,65,0.1)', below: 'rgba(255,68,68,0.1)' } }]
+}, { scales: { x: { display: false }, y: { ticks: { callback: v => v.toFixed(2)+'%' } } } }));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const $  = id => document.getElementById(id);
@@ -402,7 +444,7 @@ async function update() {
   $('h-status').textContent = 'LIVE';
 
   const { metrics, prices, signals, fills, open_orders, equity, capital } = data;
-  const { performance: perf, rsi_series, macd, cvd, implied_probability, vwap, volatility, signal_strength } = metrics;
+  const { performance: perf, rsi_series, macd, cvd, bollinger, vwap_deviation, implied_probability, vwap, volatility, signal_strength } = metrics;
 
   // ── Header ────────────────────────────────────────────────────────────────
   $('h-market').textContent    = data.market_id || '—';
@@ -418,11 +460,17 @@ async function update() {
   $('h-winrate').textContent = perf.win_rate + '%';
   $('h-winrate').style.color = perf.win_rate >= 50 ? 'var(--green)' : 'var(--red)';
 
-  // ── Price chart ───────────────────────────────────────────────────────────
+  // ── Price chart (with Bollinger bands overlay) ────────────────────────────
   const probLabels = implied_probability.map(p => p.timestamp.slice(11,19));
   const probData   = implied_probability.map(p => p.prob / 100);
   const vwapLine   = implied_probability.map(() => vwap);
-  updateChart(priceChart, probLabels, probData, vwapLine);
+  const bSeries    = bollinger.series || [];
+  const bLabels    = bSeries.map(b => b.timestamp.slice(11,19));
+  // Align bollinger to price chart labels (use last N matching points)
+  const bbUpper = probLabels.map(l => { const b = bSeries.find(s => s.timestamp.slice(11,19) === l); return b ? b.upper : null; });
+  const bbLower = probLabels.map(l => { const b = bSeries.find(s => s.timestamp.slice(11,19) === l); return b ? b.lower : null; });
+  const bbMid   = probLabels.map(l => { const b = bSeries.find(s => s.timestamp.slice(11,19) === l); return b ? b.middle : null; });
+  updateChart(priceChart, probLabels, probData, vwapLine, bbUpper, bbLower, bbMid);
 
   // ── Equity chart ──────────────────────────────────────────────────────────
   updateChart(equityChart, equity.map(e => e.timestamp.slice(11,19)), equity.map(e => e.value));
@@ -452,9 +500,25 @@ async function update() {
   $('cvd-val').textContent = fmt(cvd.value, 1);
   $('cvd-val').style.color = cvd.value > 0 ? 'var(--green)' : cvd.value < 0 ? 'var(--red)' : 'var(--text)';
 
-  // ── Volume chart ──────────────────────────────────────────────────────────
-  const recent = prices.slice(-30);
-  updateChart(volChart, recent.map(p => p.timestamp.slice(11,19)), recent.map(p => p.volume));
+  // ── Bollinger chart ───────────────────────────────────────────────────────
+  if (bSeries.length) {
+    const recentPrices = prices.slice(-bSeries.length);
+    updateChart(bollingerChart,
+      bSeries.map(b => b.timestamp.slice(11,19)),
+      recentPrices.map(p => p.price),
+      bSeries.map(b => b.upper),
+      bSeries.map(b => b.lower),
+      bSeries.map(b => b.middle),
+    );
+  }
+
+  // ── VWAP deviation chart ──────────────────────────────────────────────────
+  if (vwap_deviation && vwap_deviation.length) {
+    updateChart(vwapDevChart,
+      vwap_deviation.map(v => v.timestamp.slice(11,19)),
+      vwap_deviation.map(v => v.deviation),
+    );
+  }
   $('lvol-val').textContent = fmt(data.last_volume, 2);
 
   // ── Volatility gauge ──────────────────────────────────────────────────────
@@ -468,8 +532,8 @@ async function update() {
   $('sig-strength').style.color = signal_strength > 60 ? 'var(--green)' : signal_strength > 30 ? 'var(--yellow)' : 'var(--muted)';
 
   // Per-strategy confidence from recent signals
-  ['rsi','macd','cvd'].forEach(s => {
-    const recent = signals.filter(sig => sig.strategy.toLowerCase() === s);
+  ['rsi','macd','cvd','bollinger','vwap'].forEach(s => {
+    const recent = signals.filter(sig => sig.strategy.toLowerCase().includes(s));
     const conf = recent.length ? recent[0].confidence : 0;
     $(`conf-${s}`).style.width = conf + '%';
     $(`conf-${s}-pct`).textContent = conf.toFixed(0) + '%';
@@ -491,12 +555,16 @@ async function update() {
   $('p-total').textContent  = perf.total_trades;
 
   // ── Strategy breakdown ────────────────────────────────────────────────────
-  ['rsi','macd','cvd'].forEach(s => {
-    const sd = perf.by_strategy[s.toUpperCase()] || perf.by_strategy[s] || {};
-    const wr = sd.win_rate || 0;
+  ['rsi','macd','cvd','bollinger','vwap'].forEach(s => {
+    // Consensus signals use combined names like "CVD+VWAP" — sum up any entry containing this strategy
+    let trades = 0, wins = 0;
+    Object.entries(perf.by_strategy).forEach(([key, val]) => {
+      if (key.toLowerCase().includes(s)) { trades += val.trades || 0; wins += val.wins || 0; }
+    });
+    const wr = trades > 0 ? Math.round(wins / trades * 100) : 0;
     $(`sb-${s}`).style.width = wr + '%';
     $(`sp-${s}`).textContent = wr + '%';
-    $(`st-${s}`).textContent = (sd.trades || 0) + 't';
+    $(`st-${s}`).textContent = trades + 't';
   });
 
   // ── Open orders ───────────────────────────────────────────────────────────

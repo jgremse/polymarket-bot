@@ -40,6 +40,8 @@ def get_state():
         "rsi_series": m.compute_rsi_series(prices),
         "macd": macd,
         "cvd": cvd,
+        "bollinger": m.compute_bollinger(prices),
+        "vwap_deviation": m.compute_vwap_deviation_series(prices),
         "implied_probability": m.compute_implied_probability(prices),
         "signal_strength": m.compute_signal_strength(signals),
         "performance": perf,

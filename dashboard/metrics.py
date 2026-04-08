@@ -110,6 +110,37 @@ def compute_cvd(prices: list) -> dict:
     return {"value": round(cvd, 2), "series": series[-50:]}
 
 
+def compute_bollinger(prices: list, period: int = 20, num_std: float = 2.0) -> dict:
+    if len(prices) < period:
+        return {"upper": 0.0, "middle": 0.0, "lower": 0.0, "series": []}
+    series = []
+    for i in range(period - 1, len(prices)):
+        window = [p["price"] for p in prices[i - period + 1:i + 1]]
+        ma = sum(window) / len(window)
+        std = math.sqrt(sum((p - ma) ** 2 for p in window) / len(window))
+        series.append({
+            "timestamp": prices[i]["timestamp"],
+            "upper": round(ma + num_std * std, 6),
+            "middle": round(ma, 6),
+            "lower": round(ma - num_std * std, 6),
+        })
+    last = series[-1] if series else {"upper": 0.0, "middle": 0.0, "lower": 0.0}
+    return {**last, "series": series[-50:]}
+
+
+def compute_vwap_deviation_series(prices: list, window: int = 20) -> list:
+    """Rolling VWAP deviation series (price - vwap) / vwap as a percentage."""
+    result = []
+    for i in range(window - 1, len(prices)):
+        w = prices[i - window + 1:i + 1]
+        total_val = sum(p["price"] * p["volume"] for p in w)
+        total_vol = sum(p["volume"] for p in w)
+        vwap = total_val / total_vol if total_vol > 0 else 0
+        dev = (prices[i]["price"] - vwap) / vwap * 100 if vwap > 0 else 0
+        result.append({"timestamp": prices[i]["timestamp"], "deviation": round(dev, 4)})
+    return result[-50:]
+
+
 def compute_signal_strength(signals: list) -> float:
     """Average confidence of the last 3 signals."""
     recent = [s for s in signals[:3]]
