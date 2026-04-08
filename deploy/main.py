@@ -30,6 +30,8 @@ load_dotenv()
 import pandas as pd
 
 from strategies import MACDStrategy, RSIStrategy, CVDStrategy
+from strategies.bollinger_strategy import BollingerStrategy
+from strategies.vwap_strategy import VWAPStrategy
 from bot.risk_manager import RiskManager, RiskConfig
 from bot.polymarket_trader import PolymarketTrader
 from bot.kalshi_trader import KalshiTrader
@@ -61,7 +63,7 @@ EXCHANGES = {
 
 def build_strategy(name: str):
     if name.lower() == "all":
-        return [MACDStrategy(), RSIStrategy(), CVDStrategy()]
+        return [MACDStrategy(), RSIStrategy(), CVDStrategy(), BollingerStrategy(), VWAPStrategy()]
     cls = STRATEGIES.get(name.lower())
     if cls is None:
         raise ValueError(f"Unknown strategy '{name}'. Choose from: {list(STRATEGIES)}")

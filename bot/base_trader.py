@@ -103,7 +103,10 @@ class BaseTrader(ABC):
         self._poll_market_multi([strategy], market_id, lookback)
 
     def _poll_market_multi(self, strategies: list, market_id: str, lookback: int) -> None:
-        """Multi-strategy poll: fetch prices once, evaluate all strategies."""
+        """
+        Multi-strategy poll: fetch prices once, evaluate all strategies.
+        Requires at least 2 strategies to agree on direction before placing an order.
+        """
         prices = self.fetch_prices(market_id, lookback)
 
         if not prices.empty:
@@ -117,41 +120,81 @@ class BaseTrader(ABC):
                     row.get("ask"),
                 )
 
+        # Collect all signals from every strategy
+        all_signals = []
         for strategy in strategies:
             signal = strategy.generate_signal(prices)
             if signal:
                 signal.strategy = strategy.name
-                # Use the Kalshi contract's actual market price for order placement,
-                # not the raw spot price (which is in dollars, not 0-1 probability)
-                contract_price = self.get_contract_price(market_id)
-                if contract_price is not None:
-                    signal.price = contract_price
-                logger.info("[%s][%s] Signal: %s @ %.4f | %s",
-                            market_id, strategy.name, signal.side, signal.price, signal.reason)
-                sized = self.rm.evaluate(signal, market_id)
-                if sized:
-                    dashboard_state.add_signal(
-                        strategy.name, sized.side.value,
+                logger.info("[%s][%s] Signal: %s | %s",
+                            market_id, strategy.name, signal.side.value, signal.reason)
+                all_signals.append(signal)
+
+        if not all_signals:
+            return
+
+        # Consensus rules:
+        #   - CVD + any one other strategy agreeing on same side → trade
+        #   - MACD + RSI agreeing (no CVD) → trade
+        #   - CVD alone → blocked
+        from collections import Counter
+        side_counts = Counter(s.side for s in all_signals)
+        best_side, best_count = side_counts.most_common(1)[0]
+        agreeing_signals = [s for s in all_signals if s.side == best_side]
+        agreeing_names = {s.strategy for s in agreeing_signals}
+
+        has_cvd = "CVD" in agreeing_names
+        confirming = agreeing_names - {"CVD"}
+
+        # CVD alone is not enough; need at least one confirming strategy
+        if has_cvd and not confirming:
+            logger.info("[%s] CVD-only signal blocked — waiting for MACD, RSI, Bollinger or VWAP confirmation",
+                        market_id)
+            return
+
+        # Without CVD, need at least 2 other strategies to agree
+        if not has_cvd and len(agreeing_names) < 2:
+            logger.info("[%s] No consensus — signals: %s",
+                        market_id, list(agreeing_names))
+            return
+
+        strategy_names = "+".join(s.strategy for s in agreeing_signals)
+        logger.info("[%s] Consensus %s from [%s]", market_id, best_side.value, strategy_names)
+
+        # Build a combined signal: average confidence, get contract price once
+        import statistics
+        combined = agreeing_signals[0]
+        combined.strategy = strategy_names
+        combined.confidence = round(statistics.mean(s.confidence for s in agreeing_signals), 4)
+        combined.reason = " | ".join(s.reason for s in agreeing_signals)
+
+        contract_price = self.get_contract_price(market_id)
+        if contract_price is not None:
+            combined.price = contract_price
+
+        sized = self.rm.evaluate(combined, market_id)
+        if sized:
+            dashboard_state.add_signal(
+                sized.strategy, sized.side.value,
+                sized.price, sized.size,
+                sized.confidence, sized.reason,
+            )
+            if self.db:
+                self.db.log_signal(
+                    market_id, sized.strategy, sized.side.value,
+                    sized.price, sized.size, sized.confidence, sized.reason,
+                )
+            order_id = self.place_order(sized, market_id)
+            if order_id:
+                dashboard_state.set_open_order(
+                    order_id, sized.side.value,
+                    sized.price, sized.size, market_id,
+                )
+                if self.db:
+                    self.db.log_order(
+                        market_id, order_id, sized.side.value,
                         sized.price, sized.size,
-                        sized.confidence, sized.reason,
                     )
-                    if self.db:
-                        self.db.log_signal(
-                            market_id, strategy.name, sized.side.value,
-                            sized.price, sized.size, sized.confidence, sized.reason,
-                        )
-                    self._cancel_stale(market_id)
-                    order_id = self.place_order(sized, market_id)
-                    if order_id:
-                        dashboard_state.set_open_order(
-                            order_id, sized.side.value,
-                            sized.price, sized.size, market_id,
-                        )
-                        if self.db:
-                            self.db.log_order(
-                                market_id, order_id, sized.side.value,
-                                sized.price, sized.size,
-                            )
 
     # ── Abstract interface ───────────────────────────────────────────────
 
@@ -182,13 +225,18 @@ class BaseTrader(ABC):
     # ── Shared helpers ───────────────────────────────────────────────────
 
     def cancel_all(self) -> None:
-        for market_id, order_id in list(self._open_orders.items()):
-            if self.cancel_order(order_id):
-                del self._open_orders[market_id]
+        for market_id, order_ids in list(self._open_orders.items()):
+            ids = order_ids if isinstance(order_ids, list) else [order_ids]
+            for order_id in ids:
+                self.cancel_order(order_id)
+            del self._open_orders[market_id]
 
     def _cancel_stale(self, market_id: str) -> None:
         if market_id in self._open_orders:
-            self.cancel_order(self._open_orders.pop(market_id))
+            order_ids = self._open_orders.pop(market_id)
+            ids = order_ids if isinstance(order_ids, list) else [order_ids]
+            for order_id in ids:
+                self.cancel_order(order_id)
 
     def get_contract_price(self, market_id: str) -> Optional[float]:
         """Return current market price (0.0-1.0) for a contract. Override in subclasses."""
