@@ -21,6 +21,7 @@ class RiskConfig:
     confidence_scale: bool = True     # scale size by signal confidence
     take_profit: float = 0.25         # close position when price moves +25c above entry
     stop_loss: float = 0.15           # close position when price moves -15c below entry
+    max_open_positions: int = 5       # hard cap on simultaneous open positions
 
 
 class RiskManager:
@@ -48,6 +49,10 @@ class RiskManager:
             logger.warning("Daily loss limit breached — no new orders.")
             return None
 
+        if len(self._positions) >= self.cfg.max_open_positions:
+            logger.warning("Max open positions (%d) reached — order rejected.", self.cfg.max_open_positions)
+            return None
+
         if self._is_exposure_limit_breached(signal, market_id):
             logger.warning("Exposure limit would be breached — order rejected.")
             return None
@@ -67,7 +72,13 @@ class RiskManager:
         if side == Side.BUY:
             self._positions[market_id] = current + dollar_value
         else:
-            self._positions[market_id] = max(current - dollar_value, 0.0)
+            # Bug 4 fix: remove key entirely when position is closed so max_open_positions
+            # cap doesn't count positions with zero exposure
+            new_val = max(current - dollar_value, 0.0)
+            if new_val == 0.0:
+                self._positions.pop(market_id, None)
+            else:
+                self._positions[market_id] = new_val
 
     def record_pnl(self, pnl: float) -> None:
         self._daily_pnl += pnl
@@ -103,9 +114,13 @@ class RiskManager:
     def _is_exposure_limit_breached(self, signal: Signal, market_id: str) -> bool:
         if signal.side == Side.SELL:
             return False
-        current_exposure = self._total_exposure()
+        current_exposure = self._total_exposure(exclude_market=market_id)
+        # Bug 6 fix: include the proposed order's dollar cost in the exposure check
+        proposed_alloc = self.capital * self.cfg.max_position_pct
+        if self.cfg.confidence_scale:
+            proposed_alloc *= signal.confidence
         max_allowed = self.capital * self.cfg.max_total_exposure_pct
-        return current_exposure >= max_allowed
+        return current_exposure + proposed_alloc > max_allowed
 
     def _is_daily_loss_breached(self) -> bool:
         return self._daily_pnl < -(self.capital * self.cfg.max_daily_loss_pct)

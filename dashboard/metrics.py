@@ -149,10 +149,32 @@ def compute_signal_strength(signals: list) -> float:
     return round(sum(s["confidence"] for s in recent) / len(recent), 1)
 
 
+# ── Daily P&L ─────────────────────────────────────────────────────────────────
+
+def compute_daily_pnl(fills: list) -> list:
+    """Return list of {date, pnl, trades, wins} sorted oldest→newest."""
+    from collections import defaultdict
+    days: dict = defaultdict(lambda: {"pnl": 0.0, "trades": 0, "wins": 0})
+    for f in fills:
+        if f.get("pnl", 0) == 0 and not str(f.get("order_id", "")).endswith("-close"):
+            continue  # skip entry fills
+        date = str(f.get("timestamp", ""))[:10]  # "YYYY-MM-DD"
+        if not date or date == "None":
+            continue
+        days[date]["pnl"]    = round(days[date]["pnl"] + f["pnl"], 4)
+        days[date]["trades"] += 1
+        if f["pnl"] > 0:
+            days[date]["wins"] += 1
+    return [{"date": d, **v} for d, v in sorted(days.items())]
+
+
 # ── Performance metrics ───────────────────────────────────────────────────────
 
 def compute_performance(fills: list) -> dict:
-    closed = [f for f in fills if f.get("pnl", 0) != 0]
+    # Bug 8 fix: entry fills have order_id "paper-xxx", close fills end in "-close".
+    # Include close fills even if pnl is exactly 0 (breakeven trades are still trades).
+    closed = [f for f in fills if f.get("pnl", 0) != 0
+              or str(f.get("order_id", "")).endswith("-close")]
     if not closed:
         return {
             "total_trades": 0, "wins": 0, "losses": 0, "win_rate": 0.0,

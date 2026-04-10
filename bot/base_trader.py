@@ -37,6 +37,7 @@ class BaseTrader(ABC):
         dashboard_state.market_id = market_id
         dashboard_state.strategy_name = strategy.name
         dashboard_state.capital = self.rm.capital
+        dashboard_state.initial_capital = self.rm.capital
 
         while True:
             try:
@@ -64,8 +65,9 @@ class BaseTrader(ABC):
 
         dashboard_state.strategy_name = names
         dashboard_state.capital = self.rm.capital
+        dashboard_state.initial_capital = self.rm.capital
 
-        # Pre-load signal/fill history from DB so dashboard shows past activity
+        # Pre-load signal/fill/order history from DB so dashboard shows past activity
         if self.db:
             for sig in reversed(self.db.get_signals(limit=50)):
                 dashboard_state.add_signal(
@@ -76,6 +78,32 @@ class BaseTrader(ABC):
                 dashboard_state.add_fill(
                     fill["side"], fill["price"], fill["size"],
                     fill["pnl"], fill["strategy"],
+                )
+            for order in self.db.get_open_orders():
+                dashboard_state.set_open_order(
+                    order["order_id"], order["side"],
+                    order["price"], order["size"], order["market_id"],
+                )
+                # Bug 1 fix: always store order_ids as a list so paper mode can .append()
+                if order["market_id"] not in self._open_orders:
+                    self._open_orders[order["market_id"]] = []
+                self._open_orders[order["market_id"]].append(order["order_id"])
+                # Bug 2 fix: rebuild _paper_positions so settle_paper_positions can close them
+                if hasattr(self, "_paper_positions") and self.dry_run:
+                    from strategies.base_strategy import Side as _Side
+                    self._paper_positions[order["order_id"]] = {
+                        "market_id": order["market_id"],
+                        "side": _Side.BUY if order["side"] == "BUY" else _Side.SELL,
+                        "entry_price": order["price"],
+                        "size": order["size"],
+                        "strategy": "restored",
+                    }
+                # Rebuild risk manager positions so exposure limits survive restarts
+                from strategies.base_strategy import Side as _Side
+                self.rm.record_fill(
+                    order["market_id"],
+                    _Side.BUY if order["side"] == "BUY" else _Side.SELL,
+                    order["size"], order["price"],
                 )
             logger.info("Loaded history from database.")
 
@@ -175,6 +203,12 @@ class BaseTrader(ABC):
         # Don't place if price is the 0.50 fallback — means we have no real price data yet
         if combined.price == 0.50:
             logger.info("[%s] Skipping order — contract price unavailable (0.50 fallback)", market_id)
+            return
+
+        # Don't place if contract is already near settlement — no edge left
+        if combined.price >= 0.85 or combined.price <= 0.15:
+            logger.info("[%s] Skipping order — contract price %.4f is too near settlement (>0.85 or <0.15)",
+                        market_id, combined.price)
             return
 
         # Don't place if we already have an open position on this contract

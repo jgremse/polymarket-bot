@@ -86,7 +86,9 @@ class KalshiTrader(BaseTrader):
                 "size": signal.size,
                 "strategy": signal.strategy,
             }
-            self._open_orders[market_id] = order_id
+            if market_id not in self._open_orders:
+                self._open_orders[market_id] = []
+            self._open_orders[market_id].append(order_id)
             self.rm.record_fill(market_id, signal.side, signal.size, signal.price)
             return order_id
 
@@ -113,7 +115,8 @@ class KalshiTrader(BaseTrader):
             order_id = resp.order.order_id if resp and resp.order else None
 
             if order_id:
-                self._open_orders[market_id] = order_id
+                # Bug 1 fix: keep live mode consistent with paper mode (always list)
+                self._open_orders[market_id] = [order_id]
                 logger.info("Order placed | id=%s | %s %d @ %dc",
                             order_id, signal.side, int(signal.size), cents)
             return order_id
@@ -269,34 +272,52 @@ class KalshiTrader(BaseTrader):
         for order_id, pos in self._paper_positions.items():
             market_id = pos["market_id"]
             try:
-                current = self.get_contract_price(market_id)
-                if current is None:
-                    continue
-
                 entry = pos["entry_price"]
                 close_price = None
                 close_reason = None
 
-                if pos["side"] == Side.BUY:
-                    if current >= entry + tp:
-                        close_price = current
-                        close_reason = f"take-profit (entry={entry:.2f} current={current:.2f})"
-                    elif current <= entry - sl:
-                        close_price = current
-                        close_reason = f"stop-loss (entry={entry:.2f} current={current:.2f})"
-                    elif current <= 0.01 or current >= 0.99:
-                        close_price = current
-                        close_reason = f"settlement at {current:.2f}"
-                else:  # SELL
-                    if current <= entry - tp:
-                        close_price = current
-                        close_reason = f"take-profit (entry={entry:.2f} current={current:.2f})"
-                    elif current >= entry + sl:
-                        close_price = current
-                        close_reason = f"stop-loss (entry={entry:.2f} current={current:.2f})"
-                    elif current <= 0.01 or current >= 0.99:
-                        close_price = current
-                        close_reason = f"settlement at {current:.2f}"
+                # Check for contract settlement first via result field
+                # Use raw API to avoid pydantic validation failure on "finalized" status
+                try:
+                    import json as _json
+                    raw = self._client._markets_api.get_market_without_preload_content(ticker=market_id)
+                    mkt_data = _json.loads(raw.data).get("market", {})
+                    result = mkt_data.get("result")
+                    if result == "yes":
+                        close_price = 1.0
+                        close_reason = "settled YES"
+                    elif result == "no":
+                        close_price = 0.0
+                        close_reason = "settled NO"
+                except Exception:
+                    pass  # fall through to price check
+
+                # If not settled yet, check TP/SL via current price
+                if close_price is None:
+                    current = self.get_contract_price(market_id)
+                    if current is None:
+                        continue
+
+                    if pos["side"] == Side.BUY:
+                        if current >= entry + tp:
+                            close_price = current
+                            close_reason = f"take-profit (entry={entry:.2f} current={current:.2f})"
+                        elif current <= entry - sl:
+                            close_price = current
+                            close_reason = f"stop-loss (entry={entry:.2f} current={current:.2f})"
+                        elif current <= 0.01 or current >= 0.99:
+                            close_price = current
+                            close_reason = f"settlement at {current:.2f}"
+                    else:  # SELL
+                        if current <= entry - tp:
+                            close_price = current
+                            close_reason = f"take-profit (entry={entry:.2f} current={current:.2f})"
+                        elif current >= entry + sl:
+                            close_price = current
+                            close_reason = f"stop-loss (entry={entry:.2f} current={current:.2f})"
+                        elif current <= 0.01 or current >= 0.99:
+                            close_price = current
+                            close_reason = f"settlement at {current:.2f}"
 
                 if close_price is None:
                     continue
@@ -319,9 +340,14 @@ class KalshiTrader(BaseTrader):
                         market_id, pos["strategy"], pos["side"].value,
                         close_price, pos["size"], pnl=pnl, order_id=order_id + "-close",
                     )
+                    self.db.close_order(order_id, status="closed")
                 self.rm.record_pnl(pnl)
                 self.rm.record_fill(market_id, Side.SELL if pos["side"] == Side.BUY else Side.BUY,
                                     pos["size"], close_price)
+                # Bug 7 fix: remove from dashboard so open orders panel stays accurate
+                dashboard_state.remove_order(order_id)
+                # Remove from open_orders so dedup check clears for this market
+                self._open_orders.pop(market_id, None)
                 settled.append(order_id)
 
             except Exception as exc:

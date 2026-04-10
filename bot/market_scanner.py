@@ -87,9 +87,19 @@ class KalshiMarketScanner:
                 if not spot_df.empty:
                     spot_price = spot_df["price"].iloc[-1]
                     tickers.sort(key=lambda t: abs(_strike(t) - spot_price))
+                    # Filter out contracts where spot is >85% or <15% likely to resolve YES
+                    import math
+                    def _prob(t):
+                        try:
+                            strike = _strike(t)
+                            pct_diff = (spot_price - strike) / max(strike, 1e-9)
+                            return 1 / (1 + math.exp(-pct_diff * 50))
+                        except Exception:
+                            return 0.5
+                    tickers = [t for t in tickers if 0.15 <= _prob(t) <= 0.85]
                     logger.info(
-                        "%s spot @ $%.2f — nearest strike: %s",
-                        label, spot_price, tickers[0],
+                        "%s spot @ $%.2f — %d tradeable strikes, nearest: %s",
+                        label, spot_price, len(tickers), tickers[0] if tickers else "none",
                     )
             except Exception as exc:
                 logger.warning("Spot feed failed for %s: %s", prefix, exc)

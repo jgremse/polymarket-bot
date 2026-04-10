@@ -117,9 +117,16 @@ class TradingDB:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_open_orders(self) -> list:
+        rows = self._conn.execute(
+            "SELECT * FROM orders WHERE status = 'open' ORDER BY id ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def get_performance_summary(self) -> dict:
         fills = self.get_fills()
-        closed = [f for f in fills if f["pnl"] != 0]
+        closed = [f for f in fills if f["pnl"] != 0
+                  or str(f.get("order_id", "")).endswith("-close")]
         if not closed:
             return {"total_trades": 0, "total_pnl": 0.0, "win_rate": 0.0}
         wins = [f for f in closed if f["pnl"] > 0]

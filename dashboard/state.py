@@ -18,6 +18,7 @@ class DashboardState:
         self.market_id = ""
         self.strategy_name = ""
         self.capital = 1000.0
+        self.initial_capital = 1000.0  # set once from rm.capital; never changes
         self.prices = deque(maxlen=self.MAX_PRICES)
         self.signals = deque(maxlen=self.MAX_SIGNALS)
         self.fills = deque(maxlen=self.MAX_FILLS)
@@ -84,6 +85,7 @@ class DashboardState:
                 "market_id": self.market_id,
                 "strategy_name": self.strategy_name,
                 "capital": self.capital,
+                "initial_capital": self.initial_capital,
                 "prices": list(self.prices),
                 "signals": list(self.signals),
                 "fills": list(self.fills),

@@ -256,7 +256,7 @@
         <div class="metric-item"><div class="label">VWAP</div><div class="value orange" id="vwap-val">—</div></div>
         <div class="metric-item"><div class="label">Last Price</div><div class="value" id="price-val">—</div></div>
         <div class="metric-item"><div class="label">Last Volume</div><div class="value" id="lvol-val">—</div></div>
-        <div class="metric-item"><div class="label">Open Orders</div><div class="value blue" id="orders-count">0</div></div>
+        <div class="metric-item"><div class="label">Open Orders</div><div class="value blue" id="orders-count-sm">0</div></div>
       </div>
     </div>
 
@@ -322,13 +322,34 @@
     </div>
 
     <div class="card">
-      <div class="card-title"><span style="background:var(--yellow)"></span>Open Orders</div>
-      <div class="feed">
-        <table class="tbl">
-          <thead><tr><th>Side</th><th>Price</th><th>Size</th><th>Market</th><th>Time</th></tr></thead>
-          <tbody id="orders-body"><tr><td colspan="5" style="color:var(--muted);text-align:center;padding:16px">No open orders</td></tr></tbody>
-        </table>
+      <div class="card-title"><span style="background:var(--yellow)"></span>Open Orders <span id="orders-badge" style="margin-left:4px;background:rgba(227,179,65,0.15);color:var(--yellow);padding:1px 7px;border-radius:10px;font-size:11px;font-weight:700">0</span></div>
+      <div class="feed" style="max-height:220px">
+        <div id="orders-cards"><div style="color:var(--muted);text-align:center;padding:20px;font-size:12px">No open orders</div></div>
       </div>
+
+      <!-- Market legend -->
+      <div style="margin-top:12px;padding:10px;background:#0d1117;border-radius:6px;border:1px solid var(--border)">
+        <div style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px">Market Guide</div>
+        <div style="display:flex;flex-direction:column;gap:6px;font-size:11px">
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <span style="color:var(--orange);font-family:monospace;min-width:60px">KXBTCD</span>
+            <span style="color:var(--muted)">Bitcoin daily — resolves YES if BTC closes above the strike price on expiry date. Strike in ticker after <code style="color:var(--text)">-T</code>.</span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <span style="color:var(--blue);font-family:monospace;min-width:60px">KXETHD</span>
+            <span style="color:var(--muted)">Ethereum daily — same structure as KXBTCD but tracks ETH/USD price.</span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <span style="color:var(--yellow);font-family:monospace;min-width:60px">KXSOLD</span>
+            <span style="color:var(--muted)">Gold daily — resolves YES if Gold closes above the strike price on expiry date.</span>
+          </div>
+          <div style="margin-top:4px;padding-top:6px;border-top:1px solid var(--border);color:var(--muted)">
+            Ticker format: <code style="color:var(--text)">SERIES-DDMMMYY-TSTRIKE</code>&nbsp; e.g. <code style="color:var(--green)">KXBTCD-10APR26-T72000</code> = BTC above $72,000 on Apr 10.<br>
+            <span style="margin-top:4px;display:block">TP closes at <span style="color:var(--green)">+25¢</span> profit &nbsp;|&nbsp; SL closes at <span style="color:var(--red)">-15¢</span> loss</span>
+          </div>
+        </div>
+      </div>
+
       <div style="margin-top:14px">
         <div class="card-title" style="margin-bottom:8px"><span style="background:var(--red)"></span>Recent Fills</div>
         <div class="feed" style="max-height:120px">
@@ -346,6 +367,23 @@
         <table class="tbl">
           <thead><tr><th>Time</th><th>Strategy</th><th>Side</th><th>Price</th><th>Conf</th><th>Reason</th></tr></thead>
           <tbody id="signals-body"><tr><td colspan="6" style="color:var(--muted);text-align:center;padding:16px">Waiting for signals...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Row 5: Daily P&L ─────────────────────────────────────────── -->
+  <div class="row row-3-1">
+    <div class="card">
+      <div class="card-title"><span style="background:var(--green)"></span>Daily P&L</div>
+      <div class="chart-wrap" style="height:160px"><canvas id="dailyPnlChart"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span style="background:var(--green)"></span>By Day</div>
+      <div class="feed" style="max-height:160px">
+        <table class="tbl">
+          <thead><tr><th>Date</th><th>P&L</th><th>Trades</th><th>Win%</th></tr></thead>
+          <tbody id="daily-body"><tr><td colspan="4" style="color:var(--muted);text-align:center;padding:12px">No data</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -422,6 +460,23 @@ const vwapDevChart = new Chart(document.getElementById('vwapDevChart'), cfg('lin
   labels: [], datasets: [{ label: 'VWAP Dev%', data: [], borderColor: '#e3b341', borderWidth: 1.5, pointRadius: 0, tension: 0.1, fill: { target: 'origin', above: 'rgba(227,179,65,0.1)', below: 'rgba(255,68,68,0.1)' } }]
 }, { scales: { x: { display: false }, y: { ticks: { callback: v => v.toFixed(2)+'%' } } } }));
 
+// ── Daily P&L chart ───────────────────────────────────────────────────────────
+const dailyPnlChart = new Chart(document.getElementById('dailyPnlChart'), cfg('bar', {
+  labels: [],
+  datasets: [{
+    label: 'Daily P&L',
+    data: [],
+    backgroundColor: [],
+    borderRadius: 4,
+  }]
+}, {
+  scales: {
+    x: { ticks: { maxTicksLimit: 10 } },
+    y: { ticks: { callback: v => '$' + v.toFixed(2) },
+         grid: { color: ctx => ctx.tick.value === 0 ? 'rgba(255,255,255,0.15)' : '#30363d' } }
+  }
+}));
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const $  = id => document.getElementById(id);
 const pnlColor = v => v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--text)';
@@ -444,6 +499,7 @@ async function update() {
   $('h-status').textContent = 'LIVE';
 
   const { metrics, prices, signals, fills, open_orders, equity, capital } = data;
+  const daily_pnl = metrics.daily_pnl || [];
   const { performance: perf, rsi_series, macd, cvd, bollinger, vwap_deviation, implied_probability, vwap, volatility, signal_strength } = metrics;
 
   // ── Header ────────────────────────────────────────────────────────────────
@@ -568,16 +624,59 @@ async function update() {
   });
 
   // ── Open orders ───────────────────────────────────────────────────────────
-  $('orders-count').textContent = open_orders.length;
-  $('orders-body').innerHTML = open_orders.length ? open_orders.map(o => `
-    <tr>
-      <td><span class="badge badge-${o.side.toLowerCase()}">${o.side}</span></td>
-      <td>${(o.price*100).toFixed(0)}¢</td>
-      <td>${o.size}</td>
-      <td style="color:var(--muted);font-size:10px">${o.market_id}</td>
-      <td style="color:var(--muted)">${o.timestamp}</td>
-    </tr>`).join('') :
-    `<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:10px">No open orders</td></tr>`;
+  $('orders-count-sm').textContent = open_orders.length;
+  $('orders-badge').textContent = open_orders.length;
+
+  function parseMarket(market_id) {
+    // e.g. KXBTCD-26APR1009-T71799.99
+    const seriesMap = {
+      'KXBTCD': { label: 'Bitcoin', color: 'var(--orange)', unit: '$', scale: 1 },
+      'KXETHD': { label: 'Ethereum', color: 'var(--blue)',   unit: '$', scale: 1 },
+      'KXSOLD': { label: 'Gold',    color: 'var(--yellow)', unit: '$', scale: 1 },
+    };
+    const prefix = Object.keys(seriesMap).find(p => market_id.startsWith(p));
+    const info   = seriesMap[prefix] || { label: prefix || market_id, color: 'var(--muted)', unit: '', scale: 1 };
+
+    let strike = null, expiry = null;
+    const tPart = market_id.split('-T')[1];
+    if (tPart) strike = parseFloat(tPart);
+
+    // Extract date from middle segment e.g. "26APR1009" -> "10 APR 26"
+    const seg = market_id.split('-')[1] || '';
+    // Format: YYMMMDDHH e.g. "26APR1009" = 2026, April, day 10, hour 09
+    const dateMatch = seg.match(/(\d{2})([A-Z]{3})(\d{2})(\d{2})?/);
+    if (dateMatch) expiry = `${dateMatch[3]} ${dateMatch[2]} 20${dateMatch[1]}${dateMatch[4] ? ' ' + dateMatch[4] + ':00 UTC' : ''}`;
+
+    return { ...info, strike, expiry, prefix };
+  }
+
+  $('orders-cards').innerHTML = open_orders.length ? open_orders.map(o => {
+    const m = parseMarket(o.market_id);
+    const strikeStr = m.strike ? m.unit + m.strike.toLocaleString() : '—';
+    const direction = o.side === 'BUY' ? 'above' : 'below';
+    const tp = ((o.price || 0) + 0.25).toFixed(2);
+    const sl = Math.max(0, (o.price || 0) - 0.15).toFixed(2);
+    return `
+    <div style="padding:10px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;background:#0d1117">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="color:${m.color};font-weight:700;font-family:monospace;font-size:12px">${m.label}</span>
+          <span class="badge badge-${o.side.toLowerCase()}">${o.side}</span>
+        </div>
+        <span style="color:var(--muted);font-size:10px">${o.timestamp || ''}</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">
+        Betting ${m.label} closes <strong style="color:var(--text)">${direction} ${strikeStr}</strong>${m.expiry ? ' by <strong style="color:var(--text)">'+m.expiry+'</strong>' : ''}
+      </div>
+      <div style="display:flex;gap:16px;font-size:11px;font-family:monospace">
+        <span>Entry <span style="color:var(--text)">${(o.price*100).toFixed(0)}¢</span></span>
+        <span>Size <span style="color:var(--text)">${o.size}</span></span>
+        <span>TP <span style="color:var(--green)">${(tp*100).toFixed(0)}¢</span></span>
+        <span>SL <span style="color:var(--red)">${(sl*100).toFixed(0)}¢</span></span>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:monospace">${o.market_id}</div>
+    </div>`;
+  }).join('') : `<div style="color:var(--muted);text-align:center;padding:20px;font-size:12px">No open orders</div>`;
 
   // ── Fills ─────────────────────────────────────────────────────────────────
   $('fills-body').innerHTML = fills.slice(0,10).length ? fills.slice(0,10).map(f => `
@@ -589,6 +688,23 @@ async function update() {
       <td style="color:var(--muted)">${f.timestamp}</td>
     </tr>`).join('') :
     `<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:10px">No fills yet</td></tr>`;
+
+  // ── Daily P&L ─────────────────────────────────────────────────────────────
+  if (daily_pnl.length) {
+    dailyPnlChart.data.labels = daily_pnl.map(d => d.date.slice(5)); // MM-DD
+    dailyPnlChart.data.datasets[0].data = daily_pnl.map(d => d.pnl);
+    dailyPnlChart.data.datasets[0].backgroundColor = daily_pnl.map(d => d.pnl >= 0 ? 'rgba(0,255,136,0.6)' : 'rgba(255,68,68,0.6)');
+    dailyPnlChart.update('none');
+  }
+  $('daily-body').innerHTML = daily_pnl.length ? [...daily_pnl].reverse().map(d => {
+    const wr = d.trades > 0 ? Math.round(d.wins / d.trades * 100) : 0;
+    return `<tr>
+      <td style="color:var(--muted)">${d.date}</td>
+      <td style="color:${d.pnl>=0?'var(--green)':'var(--red)'};font-weight:600">${d.pnl>=0?'+':''}$${Math.abs(d.pnl).toFixed(2)}</td>
+      <td>${d.trades}</td>
+      <td style="color:${wr>=50?'var(--green)':'var(--red)'}">${wr}%</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="4" style="color:var(--muted);text-align:center;padding:12px">No data</td></tr>`;
 
   // ── Signal log ────────────────────────────────────────────────────────────
   $('signals-body').innerHTML = signals.length ? signals.slice(0,15).map(s => `
