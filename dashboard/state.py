@@ -19,6 +19,8 @@ class DashboardState:
         self.strategy_name = ""
         self.capital = 1000.0
         self.initial_capital = 1000.0  # set once from rm.capital; never changes
+        self.dry_run = True            # set False when running live
+        self.live_balance = None       # real Kalshi balance in dollars (live mode only)
         self.prices = deque(maxlen=self.MAX_PRICES)
         self.signals = deque(maxlen=self.MAX_SIGNALS)
         self.fills = deque(maxlen=self.MAX_FILLS)
@@ -86,6 +88,8 @@ class DashboardState:
                 "strategy_name": self.strategy_name,
                 "capital": self.capital,
                 "initial_capital": self.initial_capital,
+                "dry_run": self.dry_run,
+                "live_balance": self.live_balance,
                 "prices": list(self.prices),
                 "signals": list(self.signals),
                 "fills": list(self.fills),

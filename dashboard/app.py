@@ -59,7 +59,10 @@ def get_state():
     snap["last_volume"] = round(prices[-1]["volume"], 2) if prices else 0
     snap["total_pnl"] = perf["total_pnl"]
     snap["win_rate"] = perf["win_rate"]
-    snap["capital"] = round(snap.get("initial_capital", 1000.0) + perf["total_pnl"], 4)
+    if not snap.get("dry_run") and snap.get("live_balance") is not None:
+        snap["capital"] = snap["live_balance"]  # real Kalshi account balance
+    else:
+        snap["capital"] = round(snap.get("initial_capital", 1000.0) + perf["total_pnl"], 4)
     _conn2 = _sqlite3.connect(str(DB_PATH))
     _conn2.row_factory = _sqlite3.Row
     snap["open_orders"] = [dict(r) for r in _conn2.execute("SELECT * FROM orders WHERE status='open' ORDER BY id ASC").fetchall()]

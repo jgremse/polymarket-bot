@@ -66,6 +66,7 @@ class BaseTrader(ABC):
         dashboard_state.strategy_name = names
         dashboard_state.capital = self.rm.capital
         dashboard_state.initial_capital = self.rm.capital
+        dashboard_state.dry_run = self.dry_run
 
         # Pre-load signal/fill/order history from DB so dashboard shows past activity
         if self.db:

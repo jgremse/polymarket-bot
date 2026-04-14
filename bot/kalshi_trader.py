@@ -383,10 +383,18 @@ class KalshiTrader(BaseTrader):
         - Stale (unfilled > STALE_ORDER_MINUTES) → cancel
         - Cancelled/expired → clean up
         """
+        from dashboard.state import state as dashboard_state
+
+        # Refresh real account balance each cycle
+        try:
+            bal = self._client._portfolio_api.get_balance()
+            if bal and bal.balance is not None:
+                dashboard_state.live_balance = round(bal.balance / 100, 2)
+        except Exception:
+            pass
+
         if not self._pending_live_orders:
             return
-
-        from dashboard.state import state as dashboard_state
 
         now = datetime.datetime.now(datetime.timezone.utc)
         stale_cutoff = self.STALE_ORDER_MINUTES * 60
