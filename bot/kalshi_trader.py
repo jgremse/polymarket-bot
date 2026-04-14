@@ -50,11 +50,17 @@ class KalshiTrader(BaseTrader):
     def exchange_name(self) -> str:
         return "Kalshi"
 
+    STALE_ORDER_MINUTES = 30  # cancel unfilled live orders after this many minutes
+
     def __init__(self, risk_manager: RiskManager, dry_run: bool = False, db=None):
         super().__init__(risk_manager, dry_run, db=db)
         self._client = self._build_client()
         # Paper trading: track open positions for settlement {order_id -> position dict}
         self._paper_positions: dict = {}
+        # Live trading: orders that have been placed but not yet confirmed filled
+        self._pending_live_orders: dict = {}  # order_id -> {market_id, side, size, price, strategy, placed_at}
+        # Live trading: filled positions waiting for contract settlement
+        self._live_positions: dict = {}       # order_id -> position dict
 
     # ── Order management ─────────────────────────────────────────────────
 
@@ -117,6 +123,15 @@ class KalshiTrader(BaseTrader):
             if order_id:
                 # Bug 1 fix: keep live mode consistent with paper mode (always list)
                 self._open_orders[market_id] = [order_id]
+                # Track for fill polling
+                self._pending_live_orders[order_id] = {
+                    "market_id": market_id,
+                    "side": signal.side,
+                    "entry_price": signal.price,
+                    "size": signal.size,
+                    "strategy": signal.strategy,
+                    "placed_at": datetime.datetime.now(datetime.timezone.utc),
+                }
                 logger.info("Order placed | id=%s | %s %d @ %dc",
                             order_id, signal.side, int(signal.size), cents)
             return order_id
@@ -344,6 +359,9 @@ class KalshiTrader(BaseTrader):
                 self.rm.record_pnl(pnl)
                 self.rm.record_fill(market_id, Side.SELL if pos["side"] == Side.BUY else Side.BUY,
                                     pos["size"], close_price)
+                # Always remove position from risk manager on close regardless of price
+                # (record_fill won't remove it if close_price=0 since dollar_value=0)
+                self.rm._positions.pop(market_id, None)
                 # Bug 7 fix: remove from dashboard so open orders panel stays accurate
                 dashboard_state.remove_order(order_id)
                 # Remove from open_orders so dedup check clears for this market
@@ -355,6 +373,158 @@ class KalshiTrader(BaseTrader):
 
         for order_id in settled:
             del self._paper_positions[order_id]
+
+    # ── Live order & settlement tracking ────────────────────────────────
+
+    def check_live_fills(self) -> None:
+        """
+        Poll pending live orders for fill status.
+        - Filled → log entry fill, move to _live_positions
+        - Stale (unfilled > STALE_ORDER_MINUTES) → cancel
+        - Cancelled/expired → clean up
+        """
+        if not self._pending_live_orders:
+            return
+
+        from dashboard.state import state as dashboard_state
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+        stale_cutoff = self.STALE_ORDER_MINUTES * 60
+
+        for order_id, meta in list(self._pending_live_orders.items()):
+            try:
+                resp = self._client._portfolio_api.get_order(order_id=order_id)
+                order = resp.order if resp else None
+                if not order:
+                    continue
+
+                status = order.status
+                market_id = meta["market_id"]
+
+                if status in ("filled", "executed"):
+                    # Get actual fill price from fills API
+                    try:
+                        fills_resp = self._client._portfolio_api.get_fills(order_id=order_id, limit=10)
+                        fills = fills_resp.fills if fills_resp and fills_resp.fills else []
+                        if fills:
+                            # Weighted average fill price (cents → 0-1)
+                            total_count = sum(f.count for f in fills)
+                            avg_price = sum(_from_cents(f.price) * f.count for f in fills) / total_count if total_count else meta["entry_price"]
+                            filled_size = total_count
+                        else:
+                            avg_price = meta["entry_price"]
+                            filled_size = meta["size"]
+                    except Exception:
+                        avg_price = meta["entry_price"]
+                        filled_size = meta["size"]
+
+                    logger.info("[LIVE FILL] %s %s %d @ %.4f on %s",
+                                meta["side"], order_id[:12], int(filled_size), avg_price, market_id)
+
+                    dashboard_state.add_fill(
+                        meta["side"].value, avg_price, filled_size,
+                        pnl=0.0, strategy=meta["strategy"],
+                    )
+                    if self.db:
+                        self.db.log_fill(
+                            market_id, meta["strategy"], meta["side"].value,
+                            avg_price, filled_size, pnl=0.0, order_id=order_id,
+                        )
+
+                    self.rm.record_fill(market_id, meta["side"], filled_size, avg_price)
+                    self._live_positions[order_id] = {
+                        "market_id": market_id,
+                        "side": meta["side"],
+                        "entry_price": avg_price,
+                        "size": filled_size,
+                        "strategy": meta["strategy"],
+                    }
+                    del self._pending_live_orders[order_id]
+
+                elif status in ("cancelled", "expired"):
+                    logger.info("[LIVE] Order %s %s — removing", order_id[:12], status)
+                    self._open_orders.pop(market_id, None)
+                    del self._pending_live_orders[order_id]
+
+                elif (now - meta["placed_at"]).total_seconds() > stale_cutoff:
+                    logger.warning("[LIVE] Order %s stale after %d min — cancelling",
+                                   order_id[:12], self.STALE_ORDER_MINUTES)
+                    self.cancel_order(order_id)
+                    self._open_orders.pop(market_id, None)
+                    del self._pending_live_orders[order_id]
+
+            except Exception as exc:
+                logger.debug("Fill poll failed for %s: %s", order_id, exc)
+
+    def check_live_settlements(self) -> None:
+        """
+        For each filled live position, check if the contract has settled.
+        Logs close fill with real P&L when settlement is detected.
+        """
+        if not self._live_positions:
+            return
+
+        from dashboard.state import state as dashboard_state
+        import json as _json
+
+        settled = []
+        for order_id, pos in self._live_positions.items():
+            market_id = pos["market_id"]
+            try:
+                raw = self._client._markets_api.get_market_without_preload_content(ticker=market_id)
+                mkt = _json.loads(raw.data).get("market", {})
+                result = mkt.get("result")
+                status = mkt.get("status", "")
+
+                close_price = None
+                if result == "yes":
+                    close_price = 1.0
+                    close_reason = "settled YES"
+                elif result == "no":
+                    close_price = 0.0
+                    close_reason = "settled NO"
+                elif status in ("finalized", "settled"):
+                    # Settled but result unclear — use last price
+                    last = mkt.get("last_price")
+                    close_price = round(int(last) / 100, 4) if last else None
+                    close_reason = f"settled at {close_price}"
+
+                if close_price is None:
+                    continue
+
+                entry = pos["entry_price"]
+                if pos["side"] == Side.BUY:
+                    pnl = round((close_price - entry) * pos["size"], 4)
+                else:
+                    pnl = round((entry - close_price) * pos["size"], 4)
+
+                logger.info("[LIVE CLOSE] %s | %s | entry=%.2f exit=%.2f size=%d pnl=$%.2f",
+                            market_id, close_reason, entry, close_price, int(pos["size"]), pnl)
+
+                dashboard_state.add_fill(
+                    pos["side"].value, close_price, pos["size"],
+                    pnl=pnl, strategy=pos["strategy"],
+                )
+                if self.db:
+                    self.db.log_fill(
+                        market_id, pos["strategy"], pos["side"].value,
+                        close_price, pos["size"], pnl=pnl, order_id=order_id + "-close",
+                    )
+                    self.db.close_order(order_id, status="closed")
+
+                self.rm.record_pnl(pnl)
+                self.rm.record_fill(market_id, Side.SELL if pos["side"] == Side.BUY else Side.BUY,
+                                    pos["size"], close_price)
+                self.rm._positions.pop(market_id, None)
+                dashboard_state.remove_order(order_id)
+                self._open_orders.pop(market_id, None)
+                settled.append(order_id)
+
+            except Exception as exc:
+                logger.debug("Settlement check failed for %s: %s", market_id, exc)
+
+        for order_id in settled:
+            del self._live_positions[order_id]
 
     # ── Price feed ───────────────────────────────────────────────────────
 

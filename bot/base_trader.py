@@ -109,6 +109,13 @@ class BaseTrader(ABC):
 
         while True:
             try:
+                # Check live order fills and settlements before scanning new markets
+                if not self.dry_run:
+                    if hasattr(self, "check_live_fills"):
+                        self.check_live_fills()
+                    if hasattr(self, "check_live_settlements"):
+                        self.check_live_settlements()
+
                 markets = scanner.get_markets()
                 logger.info("Scanning %d markets with [%s]: %s", len(markets), names, markets)
                 for market_id in markets:
@@ -157,6 +164,12 @@ class BaseTrader(ABC):
                 logger.info("[%s][%s] Signal: %s | %s",
                             market_id, strategy.name, signal.side.value, signal.reason)
                 all_signals.append(signal)
+                # Push every raw signal to dashboard so the log shows activity
+                dashboard_state.add_signal(
+                    signal.strategy, signal.side.value,
+                    signal.price, signal.size or 0,
+                    signal.confidence, f"[{market_id}] {signal.reason}",
+                )
 
         if not all_signals:
             return
